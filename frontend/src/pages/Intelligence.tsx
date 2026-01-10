@@ -6,8 +6,7 @@ import {
   TextInput,
   Button,
   Grid,
-  Badge,
-  Flex,
+  Badge
 } from '@tremor/react';
 import {
   SparklesIcon,

@@ -1,0 +1,180 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =========================
+   PharmaInsight — Global UI Polish
+   - Scrollbars, animations, effects
+   - NO-BLACK typography theme
+   - HARD chart color enforcement
+   ========================= */
+
+/* ---------- Scrollbar ---------- */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* ---------- Transitions ---------- */
+* {
+  transition-property: background-color, border-color, color, fill, stroke, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ---------- Animations ---------- */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.7; }
+}
+
+.animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+.animate-slide-in { animation: slideIn 0.3s ease-out forwards; }
+.animate-pulse-slow { animation: pulse-slow 2s ease-in-out infinite; }
+
+/* ---------- Stagger ---------- */
+.stagger-1 { animation-delay: 0.05s; }
+.stagger-2 { animation-delay: 0.1s; }
+.stagger-3 { animation-delay: 0.15s; }
+.stagger-4 { animation-delay: 0.2s; }
+
+/* ---------- Effects ---------- */
+.gradient-text {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.card-hover {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px -8px rgba(0, 0, 0, 0.15);
+}
+
+/* =========================
+   NO BLACK THEME (TEXT)
+   ========================= */
+
+:root {
+  --pi-text: #1f2937;        /* slate-800 */
+  --pi-text-muted: #475569;  /* slate-600 */
+  --pi-text-subtle: #64748b; /* slate-500 */
+  --pi-bg: #f8fafc;          /* slate-50 */
+}
+
+html, body {
+  background-color: var(--pi-bg);
+  color: var(--pi-text);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--pi-text);
+}
+
+p, span, label, small {
+  color: var(--pi-text-muted);
+}
+
+input, select, textarea {
+  color: var(--pi-text);
+  background-color: #ffffff;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--pi-text-subtle);
+  opacity: 1;
+}
+
+/* Tremor text */
+.tremor-Title-root,
+.tremor-Metric-root {
+  color: var(--pi-text) !important;
+}
+
+.tremor-Text-root {
+  color: var(--pi-text-muted) !important;
+}
+
+/* Kill any Tailwind black utilities */
+.text-black,
+.text-gray-900,
+.text-neutral-900 {
+  color: var(--pi-text) !important;
+}
+
+/* Links */
+a { color: #0f766e; }
+a:hover { color: #115e59; }
+
+/* =========================
+   CHART COLOR ENFORCEMENT
+   THIS IS THE IMPORTANT PART
+   ========================= */
+
+/* Hex black */
+.recharts-layer [fill="#000"],
+.recharts-layer [fill="#000000"],
+.recharts-layer [stroke="#000"],
+.recharts-layer [stroke="#000000"] {
+  fill: #0f766e !important;
+  stroke: #0f766e !important;
+}
+
+/* RGB black */
+.recharts-layer [fill="rgb(0, 0, 0)"],
+.recharts-layer [fill="rgb(0,0,0)"],
+.recharts-layer [stroke="rgb(0, 0, 0)"],
+.recharts-layer [stroke="rgb(0,0,0)"] {
+  fill: #0f766e !important;
+  stroke: #0f766e !important;
+}
+
+/* LAST RESORT: force all bar/area shapes */
+.recharts-bar-rectangle rect,
+.recharts-bar-rectangle path,
+.recharts-area-area path,
+.recharts-line-curve path {
+  fill: #0f766e !important;
+  stroke: #0f766e !important;
+}
+
+/* Tooltip / legend readability */
+.recharts-tooltip-wrapper,
+.recharts-default-tooltip,
+.recharts-tooltip-label,
+.recharts-legend-item-text {
+  color: var(--pi-text) !important;
+}

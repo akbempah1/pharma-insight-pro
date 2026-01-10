@@ -1,0 +1,101 @@
+import { useEffect, useMemo, useState } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import Layout from './components/Layout';
+import UploadPage from './pages/UploadPage';
+import Dashboard from './pages/Dashboard';
+import Products from './pages/Products';
+import Forecasting from './pages/Forecasting';
+import Inventory from './pages/Inventory';
+import Reports from './pages/Reports';
+import Intelligence from './pages/Intelligence';
+import api from './api'; // ✅ import the axios instance (default export) from your api/index.ts
+
+const SESSION_KEY = 'pharma_session_id';
+
+function App() {
+  const [sessionId, setSessionId] = useState<string | null>(() => {
+    const saved = localStorage.getItem(SESSION_KEY);
+    return saved && saved.trim().length > 0 ? saved : null;
+  });
+
+  // ✅ Session validation state
+  const [checkingSession, setCheckingSession] = useState(false);
+
+  const isDataReady = useMemo(() => Boolean(sessionId), [sessionId]);
+
+  // Persist sessionId
+  useEffect(() => {
+    if (sessionId) localStorage.setItem(SESSION_KEY, sessionId);
+    else localStorage.removeItem(SESSION_KEY);
+  }, [sessionId]);
+
+  // ✅ Validate saved session against backend
+  useEffect(() => {
+    const validate = async () => {
+      if (!sessionId) return;
+
+      setCheckingSession(true);
+      try {
+        // Pick a lightweight endpoint that exists after processing
+        // date-range is a good “is session loaded?” check
+        await api.get(`/date-range/${sessionId}`);
+      } catch (err: any) {
+        const status = err?.response?.status;
+
+        // If backend says 404, session is gone → clear it
+        if (status === 404) {
+          localStorage.removeItem(SESSION_KEY);
+          setSessionId(null);
+        }
+      } finally {
+        setCheckingSession(false);
+      }
+    };
+
+    validate();
+  }, [sessionId]);
+
+  const handleDataReady = (newSessionId: string) => {
+    const clean = newSessionId?.trim();
+    if (!clean) return;
+    setSessionId(clean);
+  };
+
+  const handleReset = () => {
+    setSessionId(null);
+  };
+
+  // ✅ Optional: small loading state while checking saved session
+  if (checkingSession) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <BrowserRouter>
+      <Routes>
+        {!isDataReady ? (
+          <>
+            <Route path="/" element={<UploadPage onDataReady={handleDataReady} />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </>
+        ) : (
+          <Route path="/" element={<Layout sessionId={sessionId!} onReset={handleReset} />}>
+            <Route index element={<Dashboard sessionId={sessionId!} />} />
+            <Route path="products" element={<Products sessionId={sessionId!} />} />
+            <Route path="forecasting" element={<Forecasting sessionId={sessionId!} />} />
+            <Route path="inventory" element={<Inventory sessionId={sessionId!} />} />
+            <Route path="reports" element={<Reports sessionId={sessionId!} />} />
+            <Route path="intelligence" element={<Intelligence sessionId={sessionId!} />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        )}
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+export default App;

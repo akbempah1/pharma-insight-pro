@@ -175,3 +175,65 @@ async def get_preliminary_analysis(session_id: str):
     """Get preliminary analysis for AI module"""
     analytics = get_analytics(session_id)
     return analytics.generate_preliminary_analysis()
+@router.get("/dead-stock/{session_id}")
+async def get_all_dead_stock(
+    session_id: str,
+    limit: Optional[int] = Query(None, ge=1),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None)
+):
+    """Get ALL dead stock items"""
+    analytics = get_analytics(session_id, start_date, end_date)
+    return analytics.get_all_dead_stock(limit)
+
+
+@router.get("/fast-movers/{session_id}")
+async def get_all_fast_movers(
+    session_id: str,
+    limit: Optional[int] = Query(None, ge=1),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None)
+):
+    """Get ALL fast movers"""
+    analytics = get_analytics(session_id, start_date, end_date)
+    return analytics.get_all_fast_movers(limit)
+
+
+@router.get("/dead-stock/{session_id}/export")
+async def export_dead_stock_csv(
+    session_id: str,
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None)
+):
+    """Export dead stock as CSV"""
+    from fastapi.responses import StreamingResponse
+    import io
+    import csv
+
+    analytics = get_analytics(session_id, start_date, end_date)
+    dead_stock = analytics.get_all_dead_stock()
+
+    # Create CSV in memory
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Header
+    writer.writerow(['Product', 'Days Inactive', 'Total Revenue (GHS)', 'Total Units', 'Last Sale Date'])
+    
+    # Data
+    for item in dead_stock:
+        writer.writerow([
+            item['product'],
+            item['days_since_last_sale'],
+            round(item['revenue'], 2),
+            item['units'],
+            str(item['last_sale'])[:10] if item.get('last_sale') else ''
+        ])
+
+    output.seek(0)
+    
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=dead_stock_report.csv"}
+    )

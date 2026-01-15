@@ -242,7 +242,21 @@ export interface PreliminaryAnalysis {
   issues: string[];
   recommendations: string[];
 }
+export interface DeadStockItem {
+  product: string;
+  days_since_last_sale: number;
+  revenue: number;
+  units: number;
+  last_sale: string;
+}
 
+export interface FastMoverItem {
+  product: string;
+  monthly_revenue: number;
+  monthly_units: number;
+  revenue: number;
+  units: number;
+}
 // =====================
 // Helpers
 // =====================
@@ -558,6 +572,29 @@ export const getSuggestedQuestions = async (): Promise<{
   const response = await api.get('/ai/suggested-questions');
   return response.data;
 };
+export const getAllDeadStock = async (
+  sessionId: string,
+  limit?: number
+): Promise<DeadStockItem[]> => {
+  let url = `/dead-stock/${sessionId}`;
+  if (limit) url += `?limit=${limit}`;
+  const response = await api.get(url);
+  return response.data;
+};
 
+export const getAllFastMovers = async (
+  sessionId: string,
+  limit?: number
+): Promise<FastMoverItem[]> => {
+  let url = `/fast-movers/${sessionId}`;
+  if (limit) url += `?limit=${limit}`;
+  const response = await api.get(url);
+  return response.data;
+};
+
+export const getDeadStockExportUrl = (sessionId: string): string => {
+  const baseUrl = import.meta.env.VITE_API_URL || '/api';
+  return `${baseUrl}/dead-stock/${sessionId}/export`;
+};
 export default api;
 

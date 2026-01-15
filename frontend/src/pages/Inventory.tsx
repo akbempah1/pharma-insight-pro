@@ -18,14 +18,20 @@ import {
   Tab,
   TabPanels,
   TabPanel,
+  TextInput,
+  Button,
 } from '@tremor/react';
 import {
   BoltIcon,
   ExclamationTriangleIcon,
   ArchiveBoxIcon,
   ClockIcon,
+  ArrowDownTrayIcon,
+  XMarkIcon,
+  MagnifyingGlassIcon,
+  EyeIcon,
 } from '@heroicons/react/24/outline';
-import { getInventoryAlerts, InventoryAlerts } from '../api';
+import { getInventoryAlerts, getAllDeadStock, getAllFastMovers, getDeadStockExportUrl, InventoryAlerts, DeadStockItem, FastMoverItem } from '../api';
 import { formatCurrency, formatNumber } from '../utils';
 
 interface InventoryProps {
@@ -35,6 +41,14 @@ interface InventoryProps {
 export default function Inventory({ sessionId }: InventoryProps) {
   const [alerts, setAlerts] = useState<InventoryAlerts | null>(null);
   const [loading, setLoading] = useState(true);
+  
+  // Modal states
+  const [showDeadStockModal, setShowDeadStockModal] = useState(false);
+  const [showFastMoversModal, setShowFastMoversModal] = useState(false);
+  const [allDeadStock, setAllDeadStock] = useState<DeadStockItem[]>([]);
+  const [allFastMovers, setAllFastMovers] = useState<FastMoverItem[]>([]);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     const fetchAlerts = async () => {
@@ -50,6 +64,47 @@ export default function Inventory({ sessionId }: InventoryProps) {
 
     fetchAlerts();
   }, [sessionId]);
+
+  const handleViewAllDeadStock = async () => {
+    setShowDeadStockModal(true);
+    setModalLoading(true);
+    try {
+      const data = await getAllDeadStock(sessionId);
+      setAllDeadStock(data);
+    } catch (error) {
+      console.error('Failed to fetch all dead stock:', error);
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  const handleViewAllFastMovers = async () => {
+    setShowFastMoversModal(true);
+    setModalLoading(true);
+    try {
+      const data = await getAllFastMovers(sessionId);
+      setAllFastMovers(data);
+    } catch (error) {
+      console.error('Failed to fetch all fast movers:', error);
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  const handleDownloadDeadStock = () => {
+    const url = getDeadStockExportUrl(sessionId);
+    window.open(url, '_blank');
+  };
+
+  // Filter dead stock by search term
+  const filteredDeadStock = allDeadStock.filter(item =>
+    item.product.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  // Filter fast movers by search term
+  const filteredFastMovers = allFastMovers.filter(item =>
+    item.product.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   if (loading) {
     return (
@@ -113,7 +168,7 @@ export default function Inventory({ sessionId }: InventoryProps) {
             <div>
               <Text>Stock Health</Text>
               <Metric>
-                {(alerts?.deadStockCount || 0) < 10 ? 'Good' : 
+                {(alerts?.deadStockCount || 0) < 10 ? 'Good' :
                  (alerts?.deadStockCount || 0) < 30 ? 'Fair' : 'Poor'}
               </Metric>
               <Text className="text-xs text-gray-500 mt-1">Overall status</Text>
@@ -149,9 +204,21 @@ export default function Inventory({ sessionId }: InventoryProps) {
             {/* Fast Movers Panel */}
             <TabPanel>
               <div className="mt-4">
-                <Text className="text-gray-600 mb-4">
-                  Products with the highest sales velocity. Keep these in stock to avoid lost sales.
-                </Text>
+                <Flex justifyContent="between" alignItems="center" className="mb-4">
+                  <Text className="text-gray-600">
+                    Products with the highest sales velocity. Keep these in stock to avoid lost sales.
+                  </Text>
+                  {(alerts?.fastMoversCount || 0) > 10 && (
+                    <Button
+                      size="xs"
+                      variant="secondary"
+                      icon={EyeIcon}
+                      onClick={handleViewAllFastMovers}
+                    >
+                      View All {alerts?.fastMoversCount}
+                    </Button>
+                  )}
+                </Flex>
 
                 {alerts?.fastMovers && alerts.fastMovers.length > 0 ? (
                   <Table>
@@ -168,8 +235,8 @@ export default function Inventory({ sessionId }: InventoryProps) {
                         <TableRow key={product.product}>
                           <TableCell>
                             <Text className="font-medium">
-                              {product.product.length > 40 
-                                ? product.product.slice(0, 40) + '...' 
+                              {product.product.length > 40
+                                ? product.product.slice(0, 40) + '...'
                                 : product.product}
                             </Text>
                           </TableCell>
@@ -209,9 +276,31 @@ export default function Inventory({ sessionId }: InventoryProps) {
             {/* Dead Stock Panel */}
             <TabPanel>
               <div className="mt-4">
-                <Text className="text-gray-600 mb-4">
-                  Products with no sales in 60+ days. Consider clearance or removal.
-                </Text>
+                <Flex justifyContent="between" alignItems="center" className="mb-4">
+                  <Text className="text-gray-600">
+                    Products with no sales in 60+ days. Consider clearance or removal.
+                  </Text>
+                  {(alerts?.deadStockCount || 0) > 0 && (
+                    <Flex className="gap-2">
+                      <Button
+                        size="xs"
+                        variant="secondary"
+                        icon={EyeIcon}
+                        onClick={handleViewAllDeadStock}
+                      >
+                        View All {alerts?.deadStockCount}
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="primary"
+                        icon={ArrowDownTrayIcon}
+                        onClick={handleDownloadDeadStock}
+                      >
+                        Download CSV
+                      </Button>
+                    </Flex>
+                  )}
+                </Flex>
 
                 {alerts?.deadStock && alerts.deadStock.length > 0 ? (
                   <Table>
@@ -228,8 +317,8 @@ export default function Inventory({ sessionId }: InventoryProps) {
                         <TableRow key={product.product}>
                           <TableCell>
                             <Text className="font-medium">
-                              {product.product.length > 40 
-                                ? product.product.slice(0, 40) + '...' 
+                              {product.product.length > 40
+                                ? product.product.slice(0, 40) + '...'
                                 : product.product}
                             </Text>
                           </TableCell>
@@ -304,6 +393,198 @@ export default function Inventory({ sessionId }: InventoryProps) {
           </div>
         </Flex>
       </Card>
+
+      {/* Dead Stock Modal */}
+      {showDeadStockModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-6xl w-full max-h-[90vh] overflow-hidden shadow-2xl">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-red-50">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">All Dead Stock Items</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  {allDeadStock.length} products with no sales in 60+ days
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <Button
+                  size="sm"
+                  variant="primary"
+                  icon={ArrowDownTrayIcon}
+                  onClick={handleDownloadDeadStock}
+                >
+                  Download CSV
+                </Button>
+                <button
+                  onClick={() => setShowDeadStockModal(false)}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <XMarkIcon className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+            </div>
+
+            {/* Search */}
+            <div className="px-6 py-3 border-b border-gray-100">
+              <TextInput
+                icon={MagnifyingGlassIcon}
+                placeholder="Search products..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+
+            {/* Modal Body */}
+            <div className="overflow-y-auto max-h-[60vh]">
+              {modalLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="w-8 h-8 border-4 border-red-200 border-t-red-600 rounded-full animate-spin"></div>
+                </div>
+              ) : (
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableHeaderCell>#</TableHeaderCell>
+                      <TableHeaderCell>Product</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Days Inactive</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Total Revenue</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Units Sold</TableHeaderCell>
+                      <TableHeaderCell>Status</TableHeaderCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {filteredDeadStock.map((product, index) => (
+                      <TableRow key={product.product}>
+                        <TableCell>
+                          <Text className="text-gray-400">{index + 1}</Text>
+                        </TableCell>
+                        <TableCell>
+                          <Text className="font-medium">{product.product}</Text>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Text>{product.days_since_last_sale} days</Text>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Text>{formatCurrency(product.revenue)}</Text>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Text>{formatNumber(product.units)}</Text>
+                        </TableCell>
+                        <TableCell>
+                          <Badge color={product.days_since_last_sale > 180 ? 'red' : product.days_since_last_sale > 90 ? 'orange' : 'amber'}>
+                            {product.days_since_last_sale > 180 ? 'Critical' : product.days_since_last_sale > 90 ? 'High' : 'Warning'}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-between items-center">
+              <Text className="text-gray-500">
+                Showing {filteredDeadStock.length} of {allDeadStock.length} items
+              </Text>
+              <Button variant="secondary" onClick={() => setShowDeadStockModal(false)}>
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fast Movers Modal */}
+      {showFastMoversModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-6xl w-full max-h-[90vh] overflow-hidden shadow-2xl">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-emerald-50">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">All Fast Moving Products</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  {allFastMovers.length} products in top 10% by sales velocity
+                </p>
+              </div>
+              <button
+                onClick={() => setShowFastMoversModal(false)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <XMarkIcon className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            {/* Search */}
+            <div className="px-6 py-3 border-b border-gray-100">
+              <TextInput
+                icon={MagnifyingGlassIcon}
+                placeholder="Search products..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+
+            {/* Modal Body */}
+            <div className="overflow-y-auto max-h-[60vh]">
+              {modalLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="w-8 h-8 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin"></div>
+                </div>
+              ) : (
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableHeaderCell>#</TableHeaderCell>
+                      <TableHeaderCell>Product</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Monthly Revenue</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Monthly Units</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Total Revenue</TableHeaderCell>
+                      <TableHeaderCell>Priority</TableHeaderCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {filteredFastMovers.map((product, index) => (
+                      <TableRow key={product.product}>
+                        <TableCell>
+                          <Text className="text-gray-400">{index + 1}</Text>
+                        </TableCell>
+                        <TableCell>
+                          <Text className="font-medium">{product.product}</Text>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Text>{formatCurrency(product.monthly_revenue)}</Text>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Text>{formatNumber(product.monthly_units)}</Text>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Text>{formatCurrency(product.revenue)}</Text>
+                        </TableCell>
+                        <TableCell>
+                          <Badge color={index < 10 ? 'red' : index < 30 ? 'amber' : 'emerald'}>
+                            {index < 10 ? 'Critical' : index < 30 ? 'High' : 'Medium'}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-between items-center">
+              <Text className="text-gray-500">
+                Showing {filteredFastMovers.length} of {allFastMovers.length} items
+              </Text>
+              <Button variant="secondary" onClick={() => setShowFastMoversModal(false)}>
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

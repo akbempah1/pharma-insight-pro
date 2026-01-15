@@ -16,6 +16,8 @@ import {
   ArrowTrendingDownIcon,
   MinusIcon,
   BeakerIcon,
+  MagnifyingGlassIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 import {
   getForecast,
@@ -23,15 +25,16 @@ import {
   searchProducts,
   Forecast,
   ForecastMethod,
-  ForecastType,
   ForecastAccuracy,
   ProductSearchResult,
 } from '../api';
-import { formatCurrency, cn } from '../utils';
+import { formatCurrency, formatNumber, cn } from '../utils';
 
 interface ForecastingProps {
   sessionId: string;
 }
+
+type MetricType = 'revenue' | 'units' | 'transactions';
 
 const METHOD_OPTIONS: Array<{ label: string; value: ForecastMethod }> = [
   { label: 'Auto (Recommended)', value: 'auto' },
@@ -44,15 +47,16 @@ export default function Forecasting({ sessionId }: ForecastingProps) {
   const [forecast, setForecast] = useState<Forecast | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Controls
-  const [forecastType, setForecastType] = useState<ForecastType>('total_revenue');
+  // Controls - SEPARATED metric from product selection
+  const [metric, setMetric] = useState<MetricType>('revenue');
   const [method, setMethod] = useState<ForecastMethod>('auto');
   const [periods, setPeriods] = useState(3);
 
-  // Product search (only used when you want a specific product forecast)
+  // Product search (optional - can forecast for specific product OR overall)
   const [productQuery, setProductQuery] = useState('');
   const [productResults, setProductResults] = useState<ProductSearchResult[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
+ 
 
   // Accuracy testing
   const [accuracyLoading, setAccuracyLoading] = useState(false);
@@ -60,31 +64,16 @@ export default function Forecasting({ sessionId }: ForecastingProps) {
 
   const [error, setError] = useState<string | null>(null);
 
-  // If user selects a product, automatically switch type to "product"
-  useEffect(() => {
-    if (selectedProduct) setForecastType('product');
-  }, [selectedProduct]);
-
-  // If user switches away from product forecast type, clear product
-  useEffect(() => {
-    if (forecastType !== 'product' && selectedProduct) {
-      setSelectedProduct(null);
-      setProductQuery('');
-      setProductResults([]);
-    }
-  }, [forecastType, selectedProduct]);
-
   // Fetch forecast whenever settings change
   useEffect(() => {
     fetchForecast();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, periods, method, forecastType, selectedProduct]);
+  }, [sessionId, periods, method, metric, selectedProduct]);
 
   // Debounced product search
   useEffect(() => {
     const run = async () => {
       const q = productQuery.trim();
-      if (forecastType !== 'product') return;
       if (q.length < 2) {
         setProductResults([]);
         return;
@@ -100,19 +89,53 @@ export default function Forecasting({ sessionId }: ForecastingProps) {
 
     const t = setTimeout(run, 300);
     return () => clearTimeout(t);
-  }, [productQuery, sessionId, forecastType]);
+  }, [productQuery, sessionId]);
+
+  // Format value based on metric type
+  const formatValue = (value: number): string => {
+    if (metric === 'units') {
+      return `${formatNumber(Math.round(value))} units`;
+    }
+    if (metric === 'transactions') {
+      return `${formatNumber(Math.round(value))} txns`;
+    }
+    return formatCurrency(value);
+  };
+
+  // Format value for chart (shorter)
+  const formatChartValue = (value: number): string => {
+    if (metric === 'units') {
+      return formatNumber(Math.round(value));
+    }
+    if (metric === 'transactions') {
+      return formatNumber(Math.round(value));
+    }
+    return formatCurrency(value);
+  };
+
+  // Get unit label
+  const getUnitLabel = (): string => {
+    if (metric === 'units') return 'Units';
+    if (metric === 'transactions') return 'Transactions';
+    return 'Revenue (GHS)';
+  };
 
   const fetchForecast = async () => {
     setLoading(true);
     setError(null);
-    setAccuracy(null); // reset accuracy when settings change
+    setAccuracy(null);
 
     try {
+      // Map metric to backend forecast_type
+      const forecastType = metric === 'units' ? 'units' : 
+                          metric === 'transactions' ? 'transactions' : 
+                          'total_revenue';
+
       const data = await getForecast(sessionId, {
         periods,
         method,
-        type: forecastType,
-        product: forecastType === 'product' ? selectedProduct ?? undefined : undefined,
+        type: forecastType as any,
+        product: selectedProduct ?? undefined,
       });
       setForecast(data);
     } catch (err: any) {
@@ -139,11 +162,15 @@ export default function Forecasting({ sessionId }: ForecastingProps) {
     setAccuracyLoading(true);
     setError(null);
     try {
+      const forecastType = metric === 'units' ? 'units' : 
+                          metric === 'transactions' ? 'transactions' : 
+                          'total_revenue';
+
       const res = await testForecastAccuracy(sessionId, {
         periods,
         method,
-        type: forecastType,
-        product: forecastType === 'product' ? selectedProduct ?? undefined : undefined,
+        type: forecastType as any,
+        product: selectedProduct ?? undefined,
       });
       setAccuracy(res);
     } catch (err: any) {
@@ -167,11 +194,23 @@ export default function Forecasting({ sessionId }: ForecastingProps) {
   };
 
   const pageTitle = useMemo(() => {
-    if (forecastType === 'product' && selectedProduct) return `Forecast: ${selectedProduct}`;
-    if (forecastType === 'units') return 'Units Forecast';
-    if (forecastType === 'transactions') return 'Transactions Forecast';
-    return 'Total Revenue Forecast';
-  }, [forecastType, selectedProduct]);
+    const metricLabel = metric === 'units' ? 'Units' : 
+                       metric === 'transactions' ? 'Transactions' : 'Revenue';
+    if (selectedProduct) {
+      return `${metricLabel} Forecast: ${selectedProduct}`;
+    }
+    return `Total ${metricLabel} Forecast`;
+  }, [metric, selectedProduct]);
+
+  const pageSubtitle = useMemo(() => {
+    if (metric === 'units') {
+      return selectedProduct 
+        ? `Forecast quantity to order for ${selectedProduct}`
+        : 'Forecast total quantity for purchasing & inventory planning';
+    }
+    if (metric === 'transactions') return 'Forecast customer transaction count';
+    return 'Forecast revenue for financial planning';
+  }, [metric, selectedProduct]);
 
   // Combine historical and forecast data for chart
   const chartData = useMemo(() => {
@@ -200,101 +239,160 @@ export default function Forecasting({ sessionId }: ForecastingProps) {
         <p className="text-gray-500 mt-1">Predict future sales using historical data</p>
       </div>
 
-      {/* Forecast Settings (matches the “first version” layout) */}
+      {/* Quick Action for Purchasing Officers */}
+      <Card className="bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200">
+        <Flex justifyContent="between" alignItems="center">
+          <div>
+            <Title className="text-amber-900">📦 Purchasing Officer?</Title>
+            <Text className="text-amber-700 mt-1">
+              Search for a product and see how many units to order
+            </Text>
+          </div>
+          <button
+            onClick={() => {
+              setMetric('units');
+              
+            }}
+            className="px-4 py-2 bg-amber-500 text-white rounded-lg font-medium hover:bg-amber-600 transition-colors"
+          >
+            Forecast Product Units →
+          </button>
+        </Flex>
+      </Card>
+
+      {/* Forecast Settings */}
       <Card>
         <Title>Forecast Settings</Title>
-        <Text className="mt-1">Choose what to forecast, how far ahead, and which method to use.</Text>
+        <Text className="mt-1">Choose what to measure and how far ahead to forecast.</Text>
 
-        <Grid numItemsSm={2} numItemsLg={3} className="gap-4 mt-4">
-          {/* Forecast Type */}
-          <div>
-            <Flex justifyContent="between" className="mb-2">
-              <Text>Forecast Type</Text>
-              <Text className="text-xs text-gray-500">
-                {forecastType === 'product' ? 'Product' : 'Overall'}
-              </Text>
-            </Flex>
+        {/* Metric Toggle */}
+        <div className="mt-4">
+          <Text className="mb-2 font-medium">What do you want to forecast?</Text>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setMetric('revenue')}
+              className={cn(
+                "px-4 py-3 rounded-lg font-medium transition-all flex-1 border-2",
+                metric === 'revenue' 
+                  ? "bg-teal-500 text-white border-teal-500" 
+                  : "bg-white text-gray-700 border-gray-200 hover:border-teal-300"
+              )}
+            >
+              💰 Revenue (GHS)
+            </button>
+            <button
+              onClick={() => setMetric('units')}
+              className={cn(
+                "px-4 py-3 rounded-lg font-medium transition-all flex-1 border-2",
+                metric === 'units' 
+                  ? "bg-amber-500 text-white border-amber-500" 
+                  : "bg-white text-gray-700 border-gray-200 hover:border-amber-300"
+              )}
+            >
+              📦 Units (Quantity)
+            </button>
+            <button
+              onClick={() => setMetric('transactions')}
+              className={cn(
+                "px-4 py-3 rounded-lg font-medium transition-all flex-1 border-2",
+                metric === 'transactions' 
+                  ? "bg-blue-500 text-white border-blue-500" 
+                  : "bg-white text-gray-700 border-gray-200 hover:border-blue-300"
+              )}
+            >
+              🧾 Transactions
+            </button>
+          </div>
+        </div>
 
-            <Select value={forecastType} onValueChange={(v) => setForecastType(v as ForecastType)}>
-              <SelectItem value="total_revenue">Total Revenue</SelectItem>
-              <SelectItem value="units">Units Sold</SelectItem>
-              <SelectItem value="transactions">Transactions</SelectItem>
-              <SelectItem value="product">Specific Product</SelectItem>
-            </Select>
+        {/* Product Search */}
+        <div className="mt-4">
+          <Flex justifyContent="between" alignItems="center" className="mb-2">
+            <Text className="font-medium">
+              {selectedProduct ? 'Selected Product' : 'Filter by Product (Optional)'}
+            </Text>
+            {selectedProduct && (
+              <button
+                onClick={clearSelectedProduct}
+                className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
+              >
+                <XMarkIcon className="w-3 h-3" />
+                Clear
+              </button>
+            )}
+          </Flex>
 
-            {/* Product picker appears ONLY when Specific Product is chosen */}
-            {forecastType === 'product' && (
-              <div className="mt-3">
-                <Text className="mb-2">Product</Text>
+          {selectedProduct ? (
+            <div className="p-3 bg-gray-100 rounded-lg flex items-center justify-between">
+              <div>
+                <Text className="font-semibold text-gray-900">{selectedProduct}</Text>
+                <Text className="text-xs text-gray-500">
+                  Forecasting {metric} for this product
+                </Text>
+              </div>
+              <Badge color={metric === 'units' ? 'amber' : 'teal'}>
+                {metric === 'units' ? '📦 Units' : metric === 'transactions' ? '🧾 Txns' : '💰 Revenue'}
+              </Badge>
+            </div>
+          ) : (
+            <div className="relative">
+              <MagnifyingGlassIcon className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search product (e.g., Nifecard, Paracetamol)..."
+                value={productQuery}
+                onChange={(e) => setProductQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
 
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder={selectedProduct || 'Search product name...'}
-                    value={productQuery}
-                    onChange={(e) => setProductQuery(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-                  />
-
-                  {selectedProduct && (
+              {productResults.length > 0 && (
+                <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                  {productResults.map((result, idx) => (
                     <button
-                      onClick={clearSelectedProduct}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                      aria-label="Clear product selection"
+                      key={`${result.name}-${idx}`}
+                      onClick={() => handleSelectProduct(result.name)}
+                      className="w-full px-4 py-3 text-left hover:bg-teal-50 border-b border-gray-100 last:border-0 flex justify-between items-center"
                       type="button"
                     >
-                      ×
+                      <span className="text-gray-900 font-medium">{result.name}</span>
+                      <span className="text-gray-500 text-sm">
+                        {formatCurrency(result.revenue)}
+                      </span>
                     </button>
-                  )}
-
-                  {productResults.length > 0 && (
-                    <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
-                      {productResults.map((result, idx) => (
-                        <button
-                          key={`${result.name}-${idx}`}
-                          onClick={() => handleSelectProduct(result.name)}
-                          className="w-full px-3 py-2 text-left text-sm hover:bg-teal-50 border-b border-gray-100 last:border-0 flex justify-between items-center"
-                          type="button"
-                        >
-                          <span className="text-gray-900 truncate pr-3">{result.name}</span>
-                          <span className="text-gray-500 whitespace-nowrap">
-                            {formatCurrency(result.revenue)}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {productQuery.trim().length >= 2 && productResults.length === 0 && (
-                    <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-center">
-                      <Text className="text-gray-500">No products found for “{productQuery.trim()}”</Text>
-                    </div>
-                  )}
+                  ))}
                 </div>
+              )}
 
-                {forecastType === 'product' && !selectedProduct && (
-                  <Text className="text-xs text-gray-500 mt-2">
-                    Tip: search and select a product to forecast.
-                  </Text>
-                )}
-              </div>
-            )}
-          </div>
+              {productQuery.trim().length >= 2 && productResults.length === 0 && (
+                <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-4 text-center">
+                  <Text className="text-gray-500">No products found for "{productQuery.trim()}"</Text>
+                </div>
+              )}
+            </div>
+          )}
 
+          {!selectedProduct && (
+            <Text className="text-xs text-gray-500 mt-2">
+              Leave empty to forecast for all products combined
+            </Text>
+          )}
+        </div>
+
+        <Grid numItemsSm={2} className="gap-4 mt-4">
           {/* Periods */}
           <div>
-            <Text className="mb-2">Forecast Periods (Months)</Text>
+            <Text className="mb-2">Forecast Periods</Text>
             <Select value={String(periods)} onValueChange={(v) => setPeriods(Number(v))}>
-              <SelectItem value="1">1</SelectItem>
-              <SelectItem value="2">2</SelectItem>
-              <SelectItem value="3">3</SelectItem>
-              <SelectItem value="6">6</SelectItem>
+              <SelectItem value="1">1 Month</SelectItem>
+              <SelectItem value="2">2 Months</SelectItem>
+              <SelectItem value="3">3 Months (Recommended)</SelectItem>
+              <SelectItem value="6">6 Months</SelectItem>
             </Select>
           </div>
 
           {/* Method */}
           <div>
-            <Text className="mb-2">Method</Text>
+            <Text className="mb-2">Forecast Method</Text>
             <Select value={method} onValueChange={(v) => setMethod(v as ForecastMethod)}>
               {METHOD_OPTIONS.map((m) => (
                 <SelectItem key={m.value} value={m.value}>
@@ -305,29 +403,20 @@ export default function Forecasting({ sessionId }: ForecastingProps) {
           </div>
         </Grid>
 
-        {/* Actions row */}
-        <Flex className="mt-4" justifyContent="between" alignItems="center">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={fetchForecast}
-              className="px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 transition-colors disabled:opacity-60"
-              disabled={loading || (forecastType === 'product' && !selectedProduct)}
-              type="button"
-            >
-              Generate Forecast
-            </button>
-
-            <Badge color="teal" size="xs">
-              {forecastType === 'product' ? 'Product forecast' : 'Overall forecast'}
-            </Badge>
-          </div>
-
-          <Text className="text-xs text-gray-500">
-            {forecastType === 'product' && !selectedProduct
-              ? 'Select a product to enable forecast.'
-              : 'Forecast updates automatically when settings change.'}
-          </Text>
-        </Flex>
+        {/* Generate Button */}
+        <div className="mt-4">
+          <button
+            onClick={fetchForecast}
+            className={cn(
+              "w-full px-4 py-3 rounded-lg text-white font-medium transition-colors",
+              metric === 'units' ? "bg-amber-500 hover:bg-amber-600" : "bg-teal-600 hover:bg-teal-700"
+            )}
+            disabled={loading}
+            type="button"
+          >
+            {loading ? 'Generating...' : `Generate ${metric === 'units' ? 'Units' : metric === 'transactions' ? 'Transactions' : 'Revenue'} Forecast`}
+          </button>
+        </div>
       </Card>
 
       {/* Error */}
@@ -349,14 +438,16 @@ export default function Forecasting({ sessionId }: ForecastingProps) {
         <>
           {/* Summary Cards */}
           <Grid numItemsSm={2} numItemsLg={4} className="gap-4">
-            <Card decoration="left" decorationColor="teal">
+            <Card decoration="left" decorationColor={metric === 'units' ? 'amber' : 'teal'}>
               <Text>Last Actual</Text>
-              <Metric>{formatCurrency(forecast.lastActual)}</Metric>
+              <Metric>{formatValue(forecast.lastActual)}</Metric>
+              <Text className="text-xs text-gray-500 mt-1">{getUnitLabel()}</Text>
             </Card>
 
             <Card decoration="left" decorationColor="violet">
               <Text>Forecast Average</Text>
-              <Metric>{formatCurrency(forecast.forecastAvg)}</Metric>
+              <Metric>{formatValue(forecast.forecastAvg)}</Metric>
+              <Text className="text-xs text-gray-500 mt-1">Per month</Text>
             </Card>
 
             <Card decoration="left" decorationColor={getTrendColor(forecast.trend)}>
@@ -370,20 +461,42 @@ export default function Forecasting({ sessionId }: ForecastingProps) {
             </Card>
 
             <Card decoration="left" decorationColor="gray">
-              <Text>Method</Text>
+              <Text>Method Used</Text>
               <Metric className="text-lg">{forecast.method}</Metric>
             </Card>
           </Grid>
+
+          {/* Purchasing Summary for Units - Show at top when relevant */}
+          {metric === 'units' && (
+            <Card className="bg-gradient-to-r from-amber-500 to-orange-500 text-white">
+              <Flex justifyContent="between" alignItems="center">
+                <div>
+                  <Title className="text-white">
+                    📋 {selectedProduct ? `Order Recommendation: ${selectedProduct}` : 'Total Order Recommendation'}
+                  </Title>
+                  <Text className="text-amber-100 mt-1">
+                    Recommended quantity for the next {periods} month(s)
+                  </Text>
+                </div>
+                <div className="text-right">
+                  <Metric className="text-white text-4xl">
+                    {formatNumber(Math.round(forecast.forecast.reduce((sum, f) => sum + f.forecast, 0) * 1.1))}
+                  </Metric>
+                  <Text className="text-amber-100">units (includes 10% safety buffer)</Text>
+                </div>
+              </Flex>
+            </Card>
+          )}
 
           {/* Forecast Chart */}
           <Card>
             <Flex justifyContent="between" alignItems="start">
               <div>
                 <Title>{pageTitle}</Title>
-                <Text>Historical data with {periods}-month forecast</Text>
+                <Text>{pageSubtitle}</Text>
               </div>
-              <Badge color="teal" size="sm">
-                {method === 'auto' ? 'Auto' : method.replace('_', ' ')}
+              <Badge color={metric === 'units' ? 'amber' : metric === 'transactions' ? 'blue' : 'teal'} size="sm">
+                {getUnitLabel()}
               </Badge>
             </Flex>
 
@@ -393,8 +506,8 @@ export default function Forecasting({ sessionId }: ForecastingProps) {
                 data={chartData}
                 index="period"
                 categories={['Historical', 'Forecast']}
-                colors={['teal', 'violet']}
-                valueFormatter={(value) => (value ? formatCurrency(value) : '')}
+                colors={metric === 'units' ? ['amber', 'orange'] : ['teal', 'violet']}
+                valueFormatter={(value) => (value ? formatChartValue(value) : '')}
                 showLegend={true}
                 curveType="monotone"
               />
@@ -403,21 +516,51 @@ export default function Forecasting({ sessionId }: ForecastingProps) {
 
           {/* Forecast Details */}
           <Card>
-            <Title>Forecast Details</Title>
-            <div className="mt-4 space-y-3">
+            <Flex justifyContent="between" alignItems="center" className="mb-4">
+              <div>
+                <Title>Monthly Breakdown</Title>
+                {metric === 'units' && selectedProduct && (
+                  <Text className="text-amber-600">📦 Use these numbers for your {selectedProduct} purchase orders</Text>
+                )}
+              </div>
+              {metric === 'units' && (
+                <Badge color="amber" size="lg">
+                  Total: {formatNumber(Math.round(forecast.forecast.reduce((sum, f) => sum + f.forecast, 0)))} units
+                </Badge>
+              )}
+            </Flex>
+
+            <div className="space-y-3">
               {forecast.forecast.map((f, index) => (
                 <div
                   key={f.period}
-                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                  className={cn(
+                    "flex items-center justify-between p-4 rounded-lg",
+                    metric === 'units' ? "bg-amber-50 border border-amber-200" : "bg-gray-50"
+                  )}
                 >
                   <div>
-                    <Text className="font-medium">{f.period}</Text>
+                    <Text className="font-semibold text-lg">{f.period}</Text>
                     <Text className="text-xs text-gray-500">Month {index + 1}</Text>
                   </div>
                   <div className="text-right">
-                    <Text className="font-semibold text-lg">{formatCurrency(f.forecast)}</Text>
+                    <Text className={cn(
+                      "font-bold text-2xl",
+                      metric === 'units' ? "text-amber-700" : "text-gray-900"
+                    )}>
+                      {metric === 'units' ? (
+                        <>{formatNumber(Math.round(f.forecast))} <span className="text-sm font-normal">units</span></>
+                      ) : metric === 'transactions' ? (
+                        <>{formatNumber(Math.round(f.forecast))} <span className="text-sm font-normal">transactions</span></>
+                      ) : (
+                        formatCurrency(f.forecast)
+                      )}
+                    </Text>
                     <Text className="text-xs text-gray-500">
-                      Range: {formatCurrency(f.lower)} - {formatCurrency(f.upper)}
+                      Range: {metric === 'units' || metric === 'transactions'
+                        ? `${formatNumber(Math.round(f.lower))} - ${formatNumber(Math.round(f.upper))}`
+                        : `${formatCurrency(f.lower)} - ${formatCurrency(f.upper)}`
+                      }
                     </Text>
                   </div>
                 </div>
@@ -425,30 +568,28 @@ export default function Forecasting({ sessionId }: ForecastingProps) {
             </div>
           </Card>
 
-          {/* Forecast Accuracy Testing (like your first version) */}
+          {/* Forecast Accuracy Testing */}
           <Card>
             <Flex justifyContent="between" alignItems="start">
               <div>
                 <Title>Forecast Accuracy Testing</Title>
                 <Text className="mt-1">
-                  Test how accurate this would have been on your historical data (holdout evaluation).
+                  Test how accurate this method would have been on your historical data.
                 </Text>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={runAccuracyTest}
-                  className={cn(
-                    'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
-                    accuracyLoading
-                      ? 'bg-gray-200 text-gray-700'
-                      : 'bg-indigo-600 text-white hover:bg-indigo-700'
-                  )}
-                  disabled={accuracyLoading || (forecastType === 'product' && !selectedProduct)}
-                  type="button"
-                >
-                  {accuracyLoading ? 'Testing…' : 'Test Forecast Accuracy'}
-                </button>
-              </div>
+              <button
+                onClick={runAccuracyTest}
+                className={cn(
+                  'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+                  accuracyLoading
+                    ? 'bg-gray-200 text-gray-700'
+                    : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                )}
+                disabled={accuracyLoading}
+                type="button"
+              >
+                {accuracyLoading ? 'Testing…' : 'Test Accuracy'}
+              </button>
             </Flex>
 
             {accuracyLoading && (
@@ -465,9 +606,9 @@ export default function Forecasting({ sessionId }: ForecastingProps) {
                     <Metric className="text-gray-900">{accuracy.metric}</Metric>
                   </div>
                   <div className="text-right">
-                    <Text className="text-sm text-gray-500">Value</Text>
+                    <Text className="text-sm text-gray-500">Error Rate (MAPE)</Text>
                     <Metric className="text-gray-900">
-                      {Number.isFinite(accuracy.value) ? accuracy.value.toFixed(3) : String(accuracy.value)}
+                      {Number.isFinite(accuracy.value) ? accuracy.value.toFixed(1) + '%' : String(accuracy.value)}
                     </Metric>
                   </div>
                 </Flex>
@@ -476,26 +617,27 @@ export default function Forecasting({ sessionId }: ForecastingProps) {
                   <BeakerIcon className="w-5 h-5 text-indigo-500 mt-0.5" />
                   <Text>
                     Method: <span className="font-medium">{String(accuracy.method)}</span>
-                    {accuracy.notes ? ` — ${accuracy.notes}` : ''}
                   </Text>
                 </div>
               </div>
             )}
-
-            {!accuracyLoading && !accuracy && (
-              <Text className="text-sm text-gray-500 mt-4">
-                Click <span className="font-medium">Test Forecast Accuracy</span> to evaluate your current settings.
-              </Text>
-            )}
           </Card>
 
-          {/* Confidence Note */}
-          <Card className="bg-blue-50 border-blue-200">
-            <Title className="text-blue-900">About This Forecast</Title>
-            <Text className="text-blue-700 mt-2">
-              This forecast uses <span className="font-medium">{forecast.method}</span> based on your historical data.
-              The range shown is a confidence interval — actual results may vary. For best results, ensure you have
-              at least 6 months of data.
+          {/* Info Note */}
+          <Card className={cn(
+            "border",
+            metric === 'units' ? "bg-amber-50 border-amber-200" : "bg-blue-50 border-blue-200"
+          )}>
+            <Title className={metric === 'units' ? "text-amber-900" : "text-blue-900"}>
+              {metric === 'units' ? '📦 About This Units Forecast' : 'ℹ️ About This Forecast'}
+            </Title>
+            <Text className={cn("mt-2", metric === 'units' ? "text-amber-700" : "text-blue-700")}>
+              This forecast uses <span className="font-medium">{forecast.method}</span> based on your historical sales data.
+              {metric === 'units' ? (
+                <> The quantities shown are estimates. Consider adding a 10-15% buffer when placing orders to account for variability.</>
+              ) : (
+                <> The range shown represents the confidence interval. Actual results may vary based on market conditions.</>
+              )}
             </Text>
           </Card>
         </>

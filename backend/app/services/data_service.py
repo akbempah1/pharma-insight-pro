@@ -520,6 +520,68 @@ class AnalyticsService:
             'fastMoversCount': len(velocity[velocity['monthly_revenue'] >= threshold]),
             'deadStockCount': len(velocity[velocity['days_since_last_sale'] >= 60]),
         }
+    def get_all_dead_stock(self, limit: int = None) -> List[Dict]:
+        """Get ALL dead stock items (not limited to 10)"""
+        df = self.data
+
+        if df.empty:
+            return []
+
+        # Calculate velocity
+        date_range = (df['date'].max() - df['date'].min()).days
+        months = max(date_range / 30, 1)
+
+        velocity = df.groupby('product').agg({
+            'total': 'sum',
+            'quantity': 'sum',
+            'date': ['min', 'max'],
+        })
+
+        velocity.columns = ['revenue', 'units', 'first_sale', 'last_sale']
+        velocity = velocity.reset_index()
+
+        velocity['monthly_revenue'] = velocity['revenue'] / months
+        velocity['monthly_units'] = velocity['units'] / months
+        velocity['days_since_last_sale'] = (df['date'].max() - velocity['last_sale']).dt.days
+
+        # Dead stock (60+ days) - NO LIMIT
+        dead_stock = velocity[velocity['days_since_last_sale'] >= 60].sort_values('days_since_last_sale', ascending=False)
+        
+        if limit:
+            dead_stock = dead_stock.head(limit)
+
+        return dead_stock[['product', 'days_since_last_sale', 'revenue', 'units', 'last_sale']].to_dict('records')
+
+    def get_all_fast_movers(self, limit: int = None) -> List[Dict]:
+        """Get ALL fast movers (not limited to 10)"""
+        df = self.data
+
+        if df.empty:
+            return []
+
+        # Calculate velocity
+        date_range = (df['date'].max() - df['date'].min()).days
+        months = max(date_range / 30, 1)
+
+        velocity = df.groupby('product').agg({
+            'total': 'sum',
+            'quantity': 'sum',
+        })
+
+        velocity.columns = ['revenue', 'units']
+        velocity = velocity.reset_index()
+
+        velocity['monthly_revenue'] = velocity['revenue'] / months
+        velocity['monthly_units'] = velocity['units'] / months
+
+        # Fast movers (top 10% by revenue)
+        threshold = velocity['monthly_revenue'].quantile(0.9)
+        fast_movers = velocity[velocity['monthly_revenue'] >= threshold].sort_values('monthly_revenue', ascending=False)
+        
+        if limit:
+            fast_movers = fast_movers.head(limit)
+
+        return fast_movers[['product', 'monthly_revenue', 'monthly_units', 'revenue', 'units']].to_dict('records')
     
     def get_reorder_suggestions(self, forecast_months: int = 1) -> List[Dict]:
         """Get reorder suggestions based on velocity and forecast"""

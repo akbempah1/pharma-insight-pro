@@ -33,16 +33,16 @@ class AIResponse(BaseModel):
 def get_data_context(session_id: str) -> dict:
     """Get data context for AI"""
     processor = data_store.get(session_id)
-    
+
     if not processor:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     data = processor.get_data()
     if data is None:
         raise HTTPException(status_code=400, detail="Data not processed yet")
-    
+
     analytics = AnalyticsService(data)
-    
+
     # Gather comprehensive context
     context = {
         'kpis': analytics.get_kpis(),
@@ -53,8 +53,11 @@ def get_data_context(session_id: str) -> dict:
         'inventory': analytics.get_inventory_alerts(),
         'seasonality': analytics.get_seasonality_analysis(),
         'preliminary': analytics.generate_preliminary_analysis(),
+        # NEW: Full dead stock and fast movers lists
+        'allDeadStock': analytics.get_all_dead_stock(),
+        'allFastMovers': analytics.get_all_fast_movers(),
     }
-    
+
     return context
 
 
@@ -77,7 +80,7 @@ async def ask_ai(request: AIQuestion):
         raise HTTPException(status_code=400, detail=str(e))
     
     # Build prompt for Claude
-    system_prompt = """You are PharmaInsight AI, an expert pharmacy business analyst assistant. 
+    system_prompt = """You are PharmaInsight AI, an expert pharmacy business analyst assistant.
 You have access to comprehensive sales data from a retail pharmacy and your job is to:
 
 1. Answer questions about the pharmacy's performance clearly and actionably
@@ -93,10 +96,15 @@ Key pharmacy concepts you understand:
 - Seasonality in pharmacy sales
 - The importance of never letting high-demand items go out of stock
 
+IMPORTANT: You have access to the COMPLETE dead stock list and COMPLETE fast movers list.
+When users ask to "list all dead stock" or "show me all fast movers", you CAN and SHOULD 
+provide the full list from the data. Format long lists clearly with product name, days inactive, and revenue.
+
 Always be specific with numbers and percentages. Give actionable advice, not generic recommendations.
-Format your response with clear sections when appropriate."""
+Format your response with clear sections when appropriate. For long lists, use a table format."""
 
     # Format context as a readable summary
+   # Format context as a readable summary
     context_text = f"""
 ## Current Data Summary
 
@@ -115,15 +123,21 @@ Format your response with clear sections when appropriate."""
 - Class B Products: {context['abc']['summary'][1]['count'] if len(context['abc']['summary']) > 1 else 0}
 - Class C Products: {context['abc']['summary'][2]['count'] if len(context['abc']['summary']) > 2 else 0}
 
-**Top 10 Products:**
-{json.dumps(context['topProducts'][:10], indent=2)}
+**Top 20 Products by Revenue:**
+{json.dumps(context['topProducts'], indent=2)}
 
 **Monthly Revenue Trend:**
 {json.dumps(context['revenuetrend'], indent=2)}
 
-**Inventory Alerts:**
-- Fast Movers: {context['inventory']['fastMoversCount']}
-- Dead Stock (60+ days): {context['inventory']['deadStockCount']}
+**Inventory Alerts Summary:**
+- Fast Movers Count: {context['inventory']['fastMoversCount']}
+- Dead Stock Count (60+ days no sales): {context['inventory']['deadStockCount']}
+
+**FULL Dead Stock List ({len(context['allDeadStock'])} items - products with no sales in 60+ days):**
+{json.dumps(context['allDeadStock'], indent=2)}
+
+**FULL Fast Movers List ({len(context['allFastMovers'])} items - top 10% by sales velocity):**
+{json.dumps(context['allFastMovers'], indent=2)}
 
 **Seasonality:**
 {json.dumps(context['seasonality'], indent=2)}

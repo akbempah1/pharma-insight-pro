@@ -550,8 +550,41 @@ class AnalyticsService:
         if limit:
             dead_stock = dead_stock.head(limit)
 
+        # Convert last_sale to string to avoid JSON serialization issues
+        dead_stock['last_sale'] = dead_stock['last_sale'].astype(str)
+
         return dead_stock[['product', 'days_since_last_sale', 'revenue', 'units', 'last_sale']].to_dict('records')
 
+    def get_all_fast_movers(self, limit: int = None) -> List[Dict]:
+        """Get ALL fast movers (not limited to 10)"""
+        df = self.data
+
+        if df.empty:
+            return []
+
+        # Calculate velocity
+        date_range = (df['date'].max() - df['date'].min()).days
+        months = max(date_range / 30, 1)
+
+        velocity = df.groupby('product').agg({
+            'total': 'sum',
+            'quantity': 'sum',
+        })
+
+        velocity.columns = ['revenue', 'units']
+        velocity = velocity.reset_index()
+
+        velocity['monthly_revenue'] = velocity['revenue'] / months
+        velocity['monthly_units'] = velocity['units'] / months
+
+        # Fast movers (top 10% by revenue)
+        threshold = velocity['monthly_revenue'].quantile(0.9)
+        fast_movers = velocity[velocity['monthly_revenue'] >= threshold].sort_values('monthly_revenue', ascending=False)
+        
+        if limit:
+            fast_movers = fast_movers.head(limit)
+
+        return fast_movers[['product', 'monthly_revenue', 'monthly_units', 'revenue', 'units']].to_dict('records')
     def get_all_fast_movers(self, limit: int = None) -> List[Dict]:
         """Get ALL fast movers (not limited to 10)"""
         df = self.data

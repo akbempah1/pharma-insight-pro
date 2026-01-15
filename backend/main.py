@@ -1,7 +1,6 @@
 """
 PharmaInsight Pro - FastAPI Backend
 """
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -9,7 +8,11 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-from app.routers import upload, analytics, forecasting, intelligence
+from app.routers import upload, analytics, forecasting, intelligence, auth
+from app.database import engine, Base
+
+# Create database tables
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="PharmaInsight Pro API",
@@ -27,6 +30,7 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(upload.router, prefix="/api", tags=["Upload"])
 app.include_router(analytics.router, prefix="/api", tags=["Analytics"])
 app.include_router(forecasting.router, prefix="/api", tags=["Forecasting"])

@@ -30,7 +30,7 @@ class AIResponse(BaseModel):
     suggestions: list
 
 
-def get_data_context(session_id: str) -> dict:
+def get_data_context(session_id: str, include_full_lists: bool = False) -> dict:
     """Get data context for AI"""
     processor = data_store.get(session_id)
 
@@ -53,32 +53,54 @@ def get_data_context(session_id: str) -> dict:
         'inventory': analytics.get_inventory_alerts(),
         'seasonality': analytics.get_seasonality_analysis(),
         'preliminary': analytics.generate_preliminary_analysis(),
-        # NEW: Full dead stock and fast movers lists
-        'allDeadStock': analytics.get_all_dead_stock(),
-        'allFastMovers': analytics.get_all_fast_movers(),
     }
 
+    # Only include full lists when specifically requested
+    if include_full_lists:
+        context['allDeadStock'] = analytics.get_all_dead_stock()
+        context['allFastMovers'] = analytics.get_all_fast_movers()
+    else:
+        # Include just top 50 for context
+        context['deadStockSample'] = analytics.get_all_dead_stock(limit=50)
+        context['fastMoversSample'] = analytics.get_all_fast_movers(limit=50)
+
     return context
+
+
+def should_include_full_lists(question: str) -> bool:
+    """Check if the question requires full lists"""
+    question_lower = question.lower()
+    full_list_keywords = [
+        'list all', 'show all', 'all dead stock', 'all fast movers',
+        'complete list', 'full list', 'every dead', 'every fast',
+        'all products with no sales', 'all slow moving', 'all items',
+        'give me all', 'show me all', 'list every', 'all the dead',
+        'entire list', 'whole list', 'export', 'download'
+    ]
+    return any(keyword in question_lower for keyword in full_list_keywords)
 
 
 @router.post("/ask")
 async def ask_ai(request: AIQuestion):
     """Ask AI a question about the pharmacy data"""
-    
+
     api_key = request.api_key or os.environ.get("ANTHROPIC_API_KEY")
-    
+
     if not api_key:
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail="API key required. Please provide api_key in request or set ANTHROPIC_API_KEY environment variable."
         )
-    
+
+    # Check if user wants full lists
+    include_full_lists = should_include_full_lists(request.question)
+
     # Get data context
     try:
-        context = get_data_context(request.session_id)
+        context = get_data_context(request.session_id, include_full_lists=include_full_lists)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
+
     # Build prompt for Claude
     system_prompt = """You are PharmaInsight AI, an expert pharmacy business analyst assistant.
 You have access to comprehensive sales data from a retail pharmacy and your job is to:
@@ -96,15 +118,30 @@ Key pharmacy concepts you understand:
 - Seasonality in pharmacy sales
 - The importance of never letting high-demand items go out of stock
 
-IMPORTANT: You have access to the COMPLETE dead stock list and COMPLETE fast movers list.
-When users ask to "list all dead stock" or "show me all fast movers", you CAN and SHOULD 
-provide the full list from the data. Format long lists clearly with product name, days inactive, and revenue.
-
+When presenting lists of products, format them clearly in a table or numbered list.
 Always be specific with numbers and percentages. Give actionable advice, not generic recommendations.
-Format your response with clear sections when appropriate. For long lists, use a table format."""
+Format your response with clear sections when appropriate."""
 
-    # Format context as a readable summary
-   # Format context as a readable summary
+    # Format context based on whether full lists are included
+    if include_full_lists:
+        dead_stock_text = f"""
+**FULL Dead Stock List ({len(context.get('allDeadStock', []))} items - products with no sales in 60+ days):**
+{json.dumps(context.get('allDeadStock', []), indent=2)}
+
+**FULL Fast Movers List ({len(context.get('allFastMovers', []))} items - top 10% by sales velocity):**
+{json.dumps(context.get('allFastMovers', []), indent=2)}
+"""
+    else:
+        dead_stock_text = f"""
+**Dead Stock Sample (top 50 of {context['inventory']['deadStockCount']} total items with no sales in 60+ days):**
+{json.dumps(context.get('deadStockSample', []), indent=2)}
+
+**Fast Movers Sample (top 50 of {context['inventory']['fastMoversCount']} total fast-moving items):**
+{json.dumps(context.get('fastMoversSample', []), indent=2)}
+
+NOTE: If user asks for the COMPLETE list, tell them to ask "list all dead stock" or "show all fast movers" to see the full data.
+"""
+
     context_text = f"""
 ## Current Data Summary
 
@@ -133,11 +170,7 @@ Format your response with clear sections when appropriate. For long lists, use a
 - Fast Movers Count: {context['inventory']['fastMoversCount']}
 - Dead Stock Count (60+ days no sales): {context['inventory']['deadStockCount']}
 
-**FULL Dead Stock List ({len(context['allDeadStock'])} items - products with no sales in 60+ days):**
-{json.dumps(context['allDeadStock'], indent=2)}
-
-**FULL Fast Movers List ({len(context['allFastMovers'])} items - top 10% by sales velocity):**
-{json.dumps(context['allFastMovers'], indent=2)}
+{dead_stock_text}
 
 **Seasonality:**
 {json.dumps(context['seasonality'], indent=2)}
@@ -153,10 +186,10 @@ Recommendations: {context['preliminary'].get('recommendations', [])}
         "x-api-key": api_key,
         "anthropic-version": "2023-06-01"
     }
-    
+
     payload = {
         "model": "claude-sonnet-4-20250514",
-        "max_tokens": 2000,
+        "max_tokens": 4000,
         "system": system_prompt,
         "messages": [
             {
@@ -173,30 +206,30 @@ Provide specific, actionable insights based on the actual numbers."""
             }
         ]
     }
-    
+
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=90.0) as client:
             response = await client.post(CLAUDE_API_URL, headers=headers, json=payload)
-            
+
             if response.status_code != 200:
                 error_detail = response.json().get('error', {}).get('message', 'Unknown error')
                 raise HTTPException(status_code=response.status_code, detail=f"Claude API error: {error_detail}")
-            
+
             result = response.json()
             answer = result['content'][0]['text']
-            
+
             return {
                 "answer": answer,
                 "context_used": ["kpis", "categories", "abc", "revenue_trend", "top_products", "inventory", "seasonality"],
                 "suggestions": [
                     "What are my top selling products?",
                     "Which products should I reorder?",
-                    "What issues do you see in my data?",
+                    "List all dead stock",
                     "How can I improve my margins?",
                     "What's my sales trend looking like?",
                 ]
             }
-            
+
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="AI request timed out. Please try again.")
     except httpx.RequestError as e:
@@ -206,14 +239,14 @@ Provide specific, actionable insights based on the actual numbers."""
 @router.get("/diagnose/{session_id}")
 async def diagnose_data(session_id: str, api_key: Optional[str] = Query(None)):
     """Run automatic diagnosis on the data"""
-    
+
     api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
-    
+
     if not api_key:
         # Return basic diagnosis without AI
         analytics = get_analytics_for_diagnosis(session_id)
         return analytics.generate_preliminary_analysis()
-    
+
     # With API key, run full AI diagnosis
     request = AIQuestion(
         question="""Please provide a comprehensive diagnosis of this pharmacy's performance:
@@ -228,21 +261,21 @@ Be specific with numbers and give me actionable steps, not generic advice.""",
         session_id=session_id,
         api_key=api_key
     )
-    
+
     return await ask_ai(request)
 
 
 def get_analytics_for_diagnosis(session_id: str) -> AnalyticsService:
     """Get analytics service for diagnosis"""
     processor = data_store.get(session_id)
-    
+
     if not processor:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     data = processor.get_data()
     if data is None:
         raise HTTPException(status_code=400, detail="Data not processed yet")
-    
+
     return AnalyticsService(data)
 
 
@@ -271,8 +304,8 @@ async def get_suggested_questions():
                 "name": "Inventory",
                 "questions": [
                     "What should I reorder this week?",
-                    "Which products are dead stock?",
-                    "How much of each fast mover should I order?",
+                    "List all dead stock",
+                    "Show all fast movers",
                 ]
             },
             {

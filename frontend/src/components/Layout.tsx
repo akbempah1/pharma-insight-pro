@@ -7,12 +7,16 @@ import {
   ArrowLeftOnRectangleIcon,
   DocumentChartBarIcon,
   SparklesIcon,
+  ArrowRightOnRectangleIcon,
+  UserCircleIcon,
 } from '@heroicons/react/24/outline';
 import { cn } from '../utils';
+import { getUser, logout } from '../api/auth';
 
 interface LayoutProps {
   sessionId: string;
   onReset: () => void;
+  onLogout?: () => void;
 }
 
 const navigation = [
@@ -24,8 +28,14 @@ const navigation = [
   { name: 'AI Intelligence', href: '/intelligence', icon: SparklesIcon },
 ];
 
-export default function Layout({ onReset }: LayoutProps) {
+export default function Layout({ onReset, onLogout }: LayoutProps) {
   const location = useLocation();
+  const user = getUser();
+
+  const handleLogout = () => {
+    if (onLogout) onLogout();
+    logout();
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -69,16 +79,42 @@ export default function Layout({ onReset }: LayoutProps) {
 
         {/* Bottom section */}
         <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-100">
+          {/* User info */}
+          {user && (
+            <div className="flex items-center gap-3 px-4 py-3 mb-3 bg-gray-50 rounded-lg">
+              <UserCircleIcon className="w-8 h-8 text-gray-400" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900 truncate">
+                  {user.pharmacy_name}
+                </p>
+                <p className="text-xs text-gray-500 truncate">{user.email}</p>
+              </div>
+              {user.is_premium && (
+                <span className="px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 rounded-full">
+                  Pro
+                </span>
+              )}
+            </div>
+          )}
+
           <button
             onClick={onReset}
-            className="flex items-center gap-3 w-full px-4 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-red-50 hover:text-red-700 transition-all"
+            className="flex items-center gap-3 w-full px-4 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 transition-all"
           >
             <ArrowLeftOnRectangleIcon className="w-5 h-5 text-gray-400" />
             Load New Data
           </button>
-          
+
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-3 w-full px-4 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-red-50 hover:text-red-700 transition-all mt-1"
+          >
+            <ArrowRightOnRectangleIcon className="w-5 h-5 text-gray-400" />
+            Logout
+          </button>
+
           <div className="mt-4 px-4 py-3 bg-gradient-to-r from-teal-50 to-blue-50 rounded-lg border border-teal-100">
-            <p className="text-xs font-semibold text-teal-800">PharmaInsight Pro</p>
+            <p className="text-xs font-semibold text-teal-800">Aduru Analytics</p>
             <p className="text-xs text-teal-600 mt-1">Built for pharmacy excellence</p>
           </div>
         </div>
